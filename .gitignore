@@ -1,0 +1,14 @@
+# Raw or potentially sensitive multimodal data
+data/raw/
+*.mp4
+*.mov
+*.avi
+*.wav
+*.m4a
+*.mp3
+
+# Python temporary files
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
