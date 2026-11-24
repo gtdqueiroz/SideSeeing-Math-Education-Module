@@ -21,6 +21,15 @@
     .canvas { position: relative; height: clamp(240px, 34vw, 380px); }
     #erro-grafico { color: #8d271b; margin-bottom: 0; }
     #erro-grafico:empty { margin: 0; }
+    #resultado {
+      display: block;
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #e7f4f1;
+      font-weight: 600;
+    }
+    #resultado:empty { display: none; }
     @media (max-width: 760px) {
       .painel { grid-template-columns: minmax(0, 1fr); }
     }
@@ -44,12 +53,14 @@
         <p id="erro-grafico" role="status"></p>
       </div>
     </div>
+    <output id="resultado" for="video" aria-live="polite"></output>
   </main>
 
   <script>
     async function iniciarGrafico() {
       const video = document.querySelector("#video");
       const canvas = document.querySelector("#grafico");
+      const resultado = document.querySelector("#resultado");
       const resposta = await fetch("./pirueta-lenta.json");
       if (!resposta.ok) {
         throw new Error(`Falha ao carregar pirueta-lenta.json (${resposta.status}).`);
@@ -70,7 +81,8 @@
 
       const fimDaCurva = pontos.at(-1).x;
       const angulos = pontos.map(ponto => ponto.y);
-      const meta = [{ x: 0, y: 180 }, { x: fimDaCurva, y: 180 }];
+      const alvo = 180;
+      const meta = [{ x: 0, y: alvo }, { x: fimDaCurva, y: alvo }];
       const grafico = new Chart(canvas, {
         type: "line",
         data: {
@@ -113,6 +125,7 @@
       });
 
       let tempoDesenhado;
+      let anguloAtual;
       function desenhar(forcar = false) {
         const tempo = video.currentTime;
         if (!forcar && tempo === tempoDesenhado) return;
@@ -131,6 +144,7 @@
           });
         }
 
+        anguloAtual = tempo <= fimDaCurva ? visiveis.at(-1)?.y : undefined;
         grafico.data.datasets[0].data = visiveis;
         grafico.update("none");
       }
@@ -148,6 +162,28 @@
         desenhar();
       }
 
+      const numero = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
+      function mostrarResultado() {
+        congelarGrafico();
+        if (video.ended || video.seeking) return;
+        if (anguloAtual === undefined) {
+          resultado.textContent = "Não há dados de ângulo neste instante. Tente pausar em outro momento.";
+          return;
+        }
+
+        const erro = Math.abs(anguloAtual - alvo);
+        const acerto = Math.max(0, 100 * (1 - erro / alvo));
+        const diferenca = numero.format(erro);
+        let mensagem = "Você chegou à meia-volta.";
+        if (diferenca !== "0") {
+          mensagem = anguloAtual < alvo
+            ? `Faltaram ${diferenca}° para a meia-volta.`
+            : `Você passou ${diferenca}° da meia-volta.`;
+        }
+        resultado.textContent =
+          `Você pausou em ${numero.format(anguloAtual)}°. ${mensagem} Acerto: ${numero.format(acerto)}%.`;
+      }
+
       function ajustarDuracao() {
         if (Number.isFinite(video.duration) && video.duration > 0) {
           grafico.options.scales.x.max = video.duration;
@@ -158,14 +194,16 @@
 
       video.addEventListener("play", () => {
         cancelAnimationFrame(quadro);
+        resultado.textContent = "";
         acompanharVideo();
       });
-      for (const evento of ["pause", "ended"]) {
-        video.addEventListener(evento, congelarGrafico);
-      }
-      for (const evento of ["seeking", "seeked"]) {
-        video.addEventListener(evento, () => desenhar());
-      }
+      video.addEventListener("pause", mostrarResultado);
+      video.addEventListener("ended", congelarGrafico);
+      video.addEventListener("seeking", () => {
+        resultado.textContent = "";
+        desenhar();
+      });
+      video.addEventListener("seeked", () => desenhar());
       video.addEventListener("loadedmetadata", ajustarDuracao);
 
       ajustarDuracao();
