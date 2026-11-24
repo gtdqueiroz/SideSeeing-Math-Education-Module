@@ -1,10 +1,184 @@
 <!doctype html>
 <html lang="pt-BR">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pause na meia-volta</title>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pause na meia-volta</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #f2f7f6;
+      color: #173231;
+      font: 1rem/1.5 system-ui, sans-serif;
+    }
+    main { max-width: 1150px; margin: 0 auto; padding: clamp(16px, 4vw, 48px); }
+    h1 { margin: 0; font-size: clamp(1.8rem, 5vw, 3rem); line-height: 1.1; }
+    p { margin: 0.75rem 0 1.5rem; }
+    .painel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: center; }
+    video { display: block; width: 100%; aspect-ratio: 4 / 3; background: #142423; border-radius: 12px; }
+    .grafico { padding: 14px; background: white; border: 1px solid #d8e7e4; border-radius: 12px; min-width: 0; }
+    .canvas { position: relative; height: clamp(240px, 34vw, 380px); }
+    #erro-grafico { color: #8d271b; margin-bottom: 0; }
+    #erro-grafico:empty { margin: 0; }
+    @media (max-width: 760px) {
+      .painel { grid-template-columns: minmax(0, 1fr); }
+    }
+  </style>
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <main>
+    <h1>Pause na meia-volta</h1>
+    <p>Dê play e tente pausar quando a câmera estiver apontando para o lado oposto ao de onde começou.</p>
 
-<h1>Pause na meia-volta</h1>
-<video src="./pirueta-lenta.mp4" controls playsinline
-       style="width: min(100%, 640px)"></video>
+    <div class="painel">
+      <video id="video" src="./pirueta-lenta.mp4" controls playsinline preload="metadata">
+        Seu navegador não conseguiu exibir o vídeo.
+      </video>
+
+      <div class="grafico">
+        <div class="canvas">
+          <canvas id="grafico" role="img" aria-label="Ângulo estimado ao longo do vídeo"></canvas>
+        </div>
+        <p id="erro-grafico" role="status"></p>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    async function iniciarGrafico() {
+      const video = document.querySelector("#video");
+      const canvas = document.querySelector("#grafico");
+      const resposta = await fetch("./pirueta-lenta.json");
+      if (!resposta.ok) {
+        throw new Error(`Falha ao carregar pirueta-lenta.json (${resposta.status}).`);
+      }
+
+      const registros = await resposta.json();
+      const pontos = registros.map(({ tempo_video_s, angulo_graus }) => ({
+        x: tempo_video_s,
+        y: angulo_graus
+      }));
+      const invalidos = pontos.some(({ x, y }, indice) =>
+        !Number.isFinite(x) || !Number.isFinite(y) ||
+        x < 0 || (indice > 0 && x <= pontos[indice - 1].x)
+      );
+      if (pontos.length < 2 || invalidos) {
+        throw new Error("O JSON precisa conter amostras válidas em ordem crescente de tempo.");
+      }
+
+      const fimDaCurva = pontos.at(-1).x;
+      const angulos = pontos.map(ponto => ponto.y);
+      const meta = [{ x: 0, y: 180 }, { x: fimDaCurva, y: 180 }];
+      const grafico = new Chart(canvas, {
+        type: "line",
+        data: {
+          datasets: [
+            {
+              label: "Ângulo estimado",
+              data: [],
+              borderColor: "#17635e",
+              borderWidth: 2,
+              pointRadius: 0
+            },
+            {
+              label: "Meia-volta · 180°",
+              data: meta,
+              borderColor: "#687579",
+              borderWidth: 1,
+              borderDash: [6, 4],
+              pointRadius: 0
+            }
+          ]
+        },
+        options: {
+          animation: false,
+          events: [],
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              type: "linear",
+              min: 0,
+              max: fimDaCurva,
+              title: { display: true, text: "Tempo no vídeo (s)" }
+            },
+            y: {
+              min: Math.min(-10, ...angulos),
+              max: Math.max(380, ...angulos),
+              title: { display: true, text: "Ângulo estimado (°)" }
+            }
+          }
+        }
+      });
+
+      let tempoDesenhado;
+      function desenhar(forcar = false) {
+        const tempo = video.currentTime;
+        if (!forcar && tempo === tempoDesenhado) return;
+        tempoDesenhado = tempo;
+
+        const visiveis = pontos.filter(ponto => ponto.x <= tempo);
+        const anterior = visiveis.at(-1);
+        const proximo = pontos[visiveis.length];
+
+        // Interpola o ângulo na posição atual do vídeo.
+        if (anterior && proximo && tempo > anterior.x) {
+          const fracao = (tempo - anterior.x) / (proximo.x - anterior.x);
+          visiveis.push({
+            x: tempo,
+            y: anterior.y + fracao * (proximo.y - anterior.y)
+          });
+        }
+
+        grafico.data.datasets[0].data = visiveis;
+        grafico.update("none");
+      }
+
+      let quadro;
+      function acompanharVideo() {
+        desenhar();
+        if (!video.paused && !video.ended) {
+          quadro = requestAnimationFrame(acompanharVideo);
+        }
+      }
+
+      function congelarGrafico() {
+        cancelAnimationFrame(quadro);
+        desenhar();
+      }
+
+      function ajustarDuracao() {
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+          grafico.options.scales.x.max = video.duration;
+          meta[1].x = video.duration;
+        }
+        desenhar(true);
+      }
+
+      video.addEventListener("play", () => {
+        cancelAnimationFrame(quadro);
+        acompanharVideo();
+      });
+      for (const evento of ["pause", "ended"]) {
+        video.addEventListener(evento, congelarGrafico);
+      }
+      for (const evento of ["seeking", "seeked"]) {
+        video.addEventListener(evento, () => desenhar());
+      }
+      video.addEventListener("loadedmetadata", ajustarDuracao);
+
+      ajustarDuracao();
+      acompanharVideo();
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      iniciarGrafico().catch(erro => {
+        document.querySelector("#erro-grafico").textContent =
+          "Não foi possível carregar o gráfico. Abra a página pelo GitHub Pages e confira o arquivo pirueta-lenta.json.";
+        console.error(erro);
+      });
+    });
+  </script>
+</body>
 </html>
