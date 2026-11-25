@@ -1,4 +1,4 @@
-# SideSeeing project update — October 12, 2026
+# SideSeeing pilot dataset — October 12, 2026
 
 We collected 13 SideSeeing recordings for the math education module. The recordings cover circular and triangular paths, spins in place, and phone tilt tests. These setups give us known movements and orientations to compare with the phone's sensor readings.
 
@@ -12,7 +12,7 @@ We collected 13 SideSeeing recordings for the math education module. The recordi
 | Phone tilt | Two trials, labeled `inclinacao_mao` and `inclinacao_braco` |
 | Fixed phone orientations | Three trials, labeled `angulo_fixo_qualquer`, `angulo_fixo_reto`, and `angulo_fixo_celular_horizontal` |
 
-The recordings are stored in Google Drive under `ROTAS-E-TESTES/ROTAS-12-10-2026`. Each recording folder uses the dataset reference timestamp followed by a descriptive label, such as `2026-10-12-13-56-50-859_pirueta_lenta`.
+The recordings are stored in Google Drive under `IC-Fapesp/ROTAS-E-TESTES/ROTAS-12-10-2026`.
 
 ## Exploration notebook
 
